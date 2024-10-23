@@ -9,8 +9,7 @@
  * Send data out.
  */
 probe trans.Send = 
-	//kernel.statement("tcp_write_xmit@/build/linux-1eXUEu/linux-6.8.0/net/ipv4/tcp_output.c:2808")
-    kernel.statement("tcp_write_xmit@/build/linux-fBJ2ej/linux-6.8.0/net/ipv4/tcp_output.c:2808")
+    kernel.statement("tcp_write_xmit@net/ipv4/tcp_output.c:2808")
 {
 	if (mem_is_stop()) next
 	if (!$sk->sk_user_data)

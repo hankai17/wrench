@@ -1,5 +1,3 @@
-# Congestion control (Cubic algorithm)
-
 %{
 	#include <linux/tcp.h>
 	#include <net/tcp.h>
@@ -88,13 +86,9 @@
 	}
 %}
 
-/**
- * State machine of slow start.
- */
 /* 调用时机是每收到一个ack包 */
 probe cong.StMachine =  
-	//kernel.function("cubictcp_cong_avoid@/build/linux-1eXUEu/linux-6.8.0/net/ipv4/tcp_cubic.c:324")
-    kernel.function("cubictcp_cong_avoid@/build/linux-fBJ2ej/linux-6.8.0/net/ipv4/tcp_cubic.c:324")
+    kernel.function("cubictcp_cong_avoid@net/ipv4/tcp_cubic.c:324")
 {
 /*
 	if (mem_is_stop()) next
@@ -144,7 +138,6 @@ function state_machine (sk:long)
 	if (!cong)
 		return;
 
-	/* first ACK */
 	if (!info->init_cwnd) {
 		info->init_cwnd = tp->snd_cwnd;
 		info->init_ssthr = tp->snd_ssthresh;
@@ -155,23 +148,18 @@ function state_machine (sk:long)
 	 * 2.timeout loss
 	 * 3.cong to slow start
 	 */
-	if (!cong->ss_running && tp->snd_cwnd <= tp->snd_ssthresh) {    /* 慢启动阶段 */
+	if (!cong->ss_running && tp->snd_cwnd <= tp->snd_ssthresh) {
 		cong->ss_running = 1;
 		cong->ss_rtt_cnt = 0;
 		cong->ss_enter_cwnd = tp->snd_cwnd;
 
-		/* Advanced CC, SS Start */
 		advanced_cc_set(sk, POINT_SS_START, MSG_NULL);
 	}
 
-	/* slow start end point:
-	 * 1.successfully switch to cong avoid 
-	 */
-	if (cong->ss_running && tp->snd_cwnd > tp->snd_ssthresh) {  /* 拥塞避免阶段 */
+	if (cong->ss_running && tp->snd_cwnd > tp->snd_ssthresh) {
 		idx = ca->found;    /* 新版本才有 */ /* https://docs.huihoo.com/doxygen/linux/kernel/3.7/tcp__cubic_8c_source.html#l00097 */
 		idx = idx == 3 ? 1 : idx;
 
-		/* Advanced CC, SS End */
 		advanced_cc_set(sk, POINT_SS_END, idx + 1);
 
 AGAIN:
@@ -185,7 +173,6 @@ AGAIN:
 			goto AGAIN;
 		}
 
-		/* do cleaning */
 		cong->ss_running = 0;
 		cong->ss_enter_cwnd = 0;
 		cong->ss_rtt_cnt = 0;
@@ -226,7 +213,7 @@ function do_RttCnt (sk:long)
  * Epoch end point
  */
 probe cong.SetSsthresh = 
-    kernel.function("cubictcp_recalc_ssthresh@/build/linux-fBJ2ej/linux-6.8.0/net/ipv4/tcp_cubic.c:341")
+    kernel.function("cubictcp_recalc_ssthresh@net/ipv4/tcp_cubic.c:341")
 {
 	if (mem_is_stop()) next
 	if (!$sk->sk_user_data)
@@ -378,8 +365,7 @@ function get_sock_from_ca:long (ca:long)
  * Epoch start point.
  */
 probe cong.EpochStart =
-	//kernel.statement("bictcp_update@/build/linux-1eXUEu/linux-6.8.0/net/ipv4/tcp_cubic.c:215")
-    kernel.statement("bictcp_update@/build/linux-fBJ2ej/linux-6.8.0/net/ipv4/tcp_cubic.c:215")
+    kernel.statement("bictcp_update@net/ipv4/tcp_cubic.c:215")
 {
 	if (mem_is_stop()) next
 	sk = get_sock_from_ca($ca)
@@ -422,8 +408,7 @@ function do_EpochStart (sk:long, cwnd:long)
  * Epoch steady point.
  */
 probe cong.EpochSteady =
-	//kernel.statement("cubictcp_state@/build/linux-1eXUEu/linux-6.8.0/net/ipv4/tcp_cubic.c:359")
-    kernel.statement("cubictcp_state@/build/linux-fBJ2ej/linux-6.8.0/net/ipv4/tcp_cubic.c:359")
+    kernel.statement("cubictcp_state@net/ipv4/tcp_cubic.c:359")
 {
 /*
 	if (mem_is_stop()) next

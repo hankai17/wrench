@@ -9,7 +9,7 @@
  * RTT, round trip time.
  */
 probe trans.Rtt =
-    kernel.function("tcp_ack_update_rtt@/build/linux-fBJ2ej/linux-6.8.0/net/ipv4/tcp_input.c:3135")
+    kernel.function("tcp_ack_update_rtt@net/ipv4/tcp_input.c:3135")
 {
 	if (mem_is_stop()) next
 	if (!$sk || !$sk->sk_user_data)
