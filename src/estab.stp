@@ -14,7 +14,6 @@ probe estab.Estab =
 	if (!take_sample()) next
 
 	if (mem_alloc($sk)) {
-		printf("mem_alloc failed!\n")
 		next
 	}
 
@@ -34,7 +33,7 @@ function do_Estab(sk:long)
 	if (!info)
 		return;
 
-	info->estab_t = (u32)tcp_jiffies32;
+	info->estab_t = tcp_jiffies32;
 	info->isn = tp->snd_nxt;
 	info->rtx_synack = tp->total_retrans;
 	atomic_set(&info->freeing, 0); 
@@ -42,7 +41,6 @@ function do_Estab(sk:long)
 	ktime_get_ts64(&ts);
 	time = ts.tv_sec + 8 * 3600;
 	info->tm = rtc_ktime_to_tm(time);
-    printk("--------------------------------------time: %ld\n", time);
 
 	cong = info->cong;
 	if (cong && (stap_options.bitmap & STAPF_ADCONG)) {
@@ -70,11 +68,8 @@ function do_Accept(sk:long)
 	if (!info)
 		return;
 
-	info->accept_wait = (u32)tcp_jiffies32 - info->estab_t;
+	info->accept_wait = jiffies_to_msecs(tcp_jiffies32 - info->estab_t);
 	info->init_cwnd = tp->snd_cwnd;
 	info->init_ssthr = tp->snd_ssthresh;
-    printk("--------------------------------------accept_wait: %d\n", info->accept_wait);
-    printk("--------------------------------------init_cwnd: %d\n", info->init_cwnd);
-    printk("--------------------------------------init_ssthr: %d\n", info->init_ssthr);
 %}
 

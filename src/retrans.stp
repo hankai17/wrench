@@ -31,6 +31,7 @@ probe retran.FrEvent =
 	if (mem_is_stop()) next
 	if (!$sk->sk_user_data)
 		next
+
 	do_FrEvent($sk)	
 }
 
@@ -47,43 +48,16 @@ function do_FrEvent(sk:long)
 		return;
 
 	skb = tcp_rtx_queue_head(sk);
-	when = skb ? skb->tstamp : 0;
-    //printk("when0: %u\n", when);
-    //printk("when1: %llu\n", tcp_transmit_time(sk));
-
-    printk("when2: skb->skb_mstamp_ns: %llu\n", skb ? skb->skb_mstamp_ns : 0);
-    printk("tcp_clock_ns: %llu\n", tcp_clock_ns());
-    //printk("jiffies: %lu\n", jiffies/HZ);
-
-    //printk("when3: tcp_skb_timestamp_us %llu\n", skb ? tcp_skb_timestamp_us(skb) : 0);
-
-    /*
-    u32 delta_us = tcp_stamp_us_delta(tp->tcp_mstamp, tp->rcv_rtt_est.time);
-    printk("tp->tcp_mstamp: %llu\n", tp->tcp_mstamp);
-    printk("delta_us: %u\n", delta_us);
-    */
-
-    //printk("tp->tcp_clock_cache: %llu\n", tp->tcp_clock_cache); // 机器
-    /*
-    printk("tp->lsndtime: %u\n", tp->lsndtime); // ms
-    printk("tcp_jiffies32: %u\n", tcp_jiffies32); // ms
-    printk("tcp_jiffies32 to_usecs: %u ns\n", jiffies_to_usecs(tcp_jiffies32));
-    printk("tcp_clock_ms: %llu ms\n", tcp_clock_ms());
-    */
-    /*
-    printk("tcp_jiffies32: %u ms\n", jiffies_to_msecs(tcp_jiffies32));
-
-    printk("jiffies: %lu\n", jiffies);
-    printk("jiffies: %u us\n", jiffies_to_usecs(jiffies));
-    printk("jiffies: %u ms\n", jiffies_to_msecs(jiffies));
-    printk("jiffies: %u us\n", jiffies_to_usecs(jiffies));
-    printk("jiffies: %u ms\n", jiffies_to_msecs(jiffies));
-    // 参考tcp_get_info
-    */
+    when = skb ? (u32)div_u64(skb->skb_mstamp_ns, NSEC_PER_USEC) : 0;
+    u32 now = (u32)div_u64(tcp_clock_ns(), NSEC_PER_USEC);
 
 	retrans->fr_ev++;
-	retrans->fr_s_t = (u32)tcp_jiffies32;
-	retrans->fr_wt += (u32)tcp_jiffies32 - when;
+    if (when) {
+        u32 delta = now - when;
+	    retrans->fr_s_t = now;
+	    retrans->fr_wt += delta;
+        printk("retrans delta: %u\n", delta);
+    }
 %}
 
 probe retran.ToEventDistr = 
@@ -109,15 +83,22 @@ function do_ToEventDistr(sk:long)
 		return;
 
 	skb = tcp_rtx_queue_head(sk);
-	when = skb ? skb->tstamp : 0;
+    when = skb ? (u32)div_u64(skb->skb_mstamp_ns, NSEC_PER_USEC) : 0;
+    u32 now = (u32)div_u64(tcp_clock_ns(), NSEC_PER_USEC);
 
 	retrans->to_ev++;
-	retrans->to_s_t = (u32)tcp_jiffies32;
-	retrans->to_wt += (u32)tcp_jiffies32 - when;
+    if (when) {
+        u32 delta = now - when;
+	    retrans->to_s_t = now;
+	    retrans->to_wt += delta;
+        printk("timeout delta: %u\n", delta);
+    }
 
 	retrans->ca_bf_to = icsk->icsk_ca_state;
 	retrans->to_ev_distr[icsk->icsk_ca_state]++;
-	retrans->to_wt_distr[icsk->icsk_ca_state] += (u32)tcp_jiffies32 - when;
+    if (when) {
+	    retrans->to_wt_distr[icsk->icsk_ca_state] += (now - when);
+    }
 %}
 
 global traces
@@ -129,8 +110,6 @@ probe retran.PktDistr =
 	if (!$sk->sk_user_data)
 		next
 
-    //printf("------------------>\n");
-    //print_stack(backtrace());
 	do_PktDistr($sk, $skb)
 }
 
@@ -147,10 +126,9 @@ function do_PktDistr(sk:long, skb:long)
 
 	pkts_sent = tcp_skb_pcount((struct sk_buff *)STAP_ARG_skb);
 
-    //printk("tcp_retransmit_skb state: %d\n", icsk->icsk_ca_state);
 	if (icsk->icsk_ca_state == TCP_CA_Recovery) 
 		retrans->fr_rp += pkts_sent;
-	else {
+	else {  // Loss
 		retrans->to_rp += pkts_sent;
 		retrans->to_rp_distr[retrans->ca_bf_to] += pkts_sent;
 	} 
