@@ -88,20 +88,20 @@
 
 /* 调用时机是每收到一个ack包 */
 probe cong.StMachine =  
-    kernel.function("cubictcp_cong_avoid@net/ipv4/tcp_cubic.c:324")
+    kernel.statement("cubictcp_cong_avoid@net/ipv4/tcp_cubic.c:338")
 {
-/*
 	if (mem_is_stop()) next
 	if (!$sk->sk_user_data)
 		next
 
+    /*
 	if (!cwnd_limited($sk, $in_flight)) 
 		next
+    */
 
     // 有必要增窗口
 	state_machine($sk)
 	log_advanced_cc($sk)
-*/
 }
 
 function cwnd_limited:long (sk:long, in_flight:long)
@@ -284,7 +284,7 @@ function epoch_end(sk:long)
 
 	/* Phase time, unit is RTT */
 	if (tp->srtt_us)
-		rtt_cnt = (((u32)tcp_time_stamp_ts - ca->epoch_start) << 3) / tp->srtt_us;
+		rtt_cnt = (((u32)tcp_jiffies32 - ca->epoch_start) << 3) / tp->srtt_us;
 	
 	cong->phase_time[0] += rtt_cnt;
 	cong->phase_cnt[0]++;
@@ -295,7 +295,7 @@ function epoch_end(sk:long)
 		msg = MSG_EP_PROBE; 
 	} else if (cong->epoch_switch) {
 		cong->phase_time[2] += 
-			(((u32)tcp_time_stamp_ts - cong->epoch_switch_ts) << 3) / tp->srtt_us;
+			(((u32)tcp_jiffies32 - cong->epoch_switch_ts) << 3) / tp->srtt_us;
 		cong->phase_cnt[2]++;
 		msg = MSG_EP_PROBE;
 	} else {
@@ -433,12 +433,12 @@ function do_EpochSteady (sk:long)
 	if (!cong)
 		return;
 
-	now	= (((u32)tcp_time_stamp_ts + msecs_to_jiffies(ca->delay_min>>3)
+	now	= (((u32)tcp_jiffies32 + msecs_to_jiffies(ca->delay_min>>3)
 			- ca->epoch_start) << 10) / HZ;
 
 	if (!cong->epoch_switch && ca->bic_K && now > ca->bic_K) {
 		cong->epoch_switch = 1;
-		cong->epoch_switch_ts = (u32)tcp_time_stamp_ts;
+		cong->epoch_switch_ts = (u32)tcp_jiffies32;
 
 		cong->epoch_rtt[1] += tp->srtt_us >> 3;
 		cong->epoch_cwnd[1] += tp->snd_cwnd;
@@ -447,7 +447,7 @@ function do_EpochSteady (sk:long)
 		cong->phase_cnt[1]++;
 		if (tp->srtt_us)
 			cong->phase_time[1] += 
-				(((u32)tcp_time_stamp_ts - ca->epoch_start) << 3) / tp->srtt_us;
+				(((u32)tcp_jiffies32 - ca->epoch_start) << 3) / tp->srtt_us;
 
 		/* Advanced CC, Epoch Steady point */
 		advanced_cc_set(sk, POINT_EP_STEADY, MSG_NULL);
@@ -535,7 +535,7 @@ function get_time_elapsed:long (sk:long)
 	struct sock *sk = (struct sock *)STAP_ARG_sk;
 	struct stap_info *info = sk->sk_user_data;
 	
-	STAP_RETVALUE = (u32)tcp_time_stamp_ts - info->estab_t;
+	STAP_RETVALUE = (u32)tcp_jiffies32 - info->estab_t;
 %}
 
 function advanced_cc_clear(sk:long)
@@ -553,12 +553,23 @@ function advanced_cc_clear(sk:long)
  */
 function log_cong (sk:long)
 {
+    /*
+	if (%{stap_options.bitmap & STAPF_CONG%}) {
+        printf("bitmap ok----------->\n");
+    } else {
+        // 34 // 1000010
+        printf("bitmap not ok %d----------->\n", %{stap_options.bitmap%});
+        printf("bitmap not ok %d----------->\n", %{STAPF_CONG%});
+    }
+    */
 	if (%{stap_options.bitmap & STAPF_CONG%} && 
 		!cong_is_null(sk)) {
-		if (!%{stap_options.detail_log%})
+		if (!%{stap_options.detail_log%}) {
 			log_default_cong(sk)
-		else
+        }
+		else {
 			log_detail_cong(sk)
+        }
 	}
 }
 

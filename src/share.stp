@@ -54,7 +54,7 @@ function get_conn_lifetime:long (sk:long)
 %{
 	struct sock *sk = (struct sock *)STAP_ARG_sk;
 	struct stap_info *info = sk->sk_user_data;
-	STAP_RETVALUE = jiffies_to_msecs((u32)tcp_time_stamp_ts - info->estab_t);
+	STAP_RETVALUE = jiffies_to_msecs((u32)tcp_jiffies32 - info->estab_t);
 %}
 
 function get_conn_data:long (sk:long)

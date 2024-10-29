@@ -59,7 +59,7 @@ function do_Recv(sk:long)
 
 		http = info->http + (info->http_count - 1);
 		if (http) {
-			http->rcv_req_ts = (u32)tcp_time_stamp_ts;
+			http->rcv_req_ts = (u32)tcp_jiffies32;
 	        ktime_get_ts64(&ts);
 			time = ts.tv_sec + 8 * 3600;
 			http->tm = rtc_ktime_to_tm(time);
@@ -96,7 +96,7 @@ function do_RespEnd(sk:long)
 	http = info->http + (info->http_count - info->http_offset);
 
 	if (http) {
-		http->last_ack_ts = (u32)tcp_time_stamp_ts;
+		http->last_ack_ts = (u32)tcp_jiffies32;
 		http->end_snd_una = tcp_sk(sk)->snd_una;
 
 		if (info->http_offset == 2) {

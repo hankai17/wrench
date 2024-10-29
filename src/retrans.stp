@@ -26,12 +26,11 @@
 %}
 
 probe retran.FrEvent =
-	kernel.function("tcp_fastretrans_alert").return
+	kernel.statement("tcp_fastretrans_alert@net/ipv4/tcp_input.c:3001")
 {
 	if (mem_is_stop()) next
 	if (!$sk->sk_user_data)
 		next
-	
 	do_FrEvent($sk)	
 }
 
@@ -40,6 +39,7 @@ function do_FrEvent(sk:long)
 	struct sock *sk = (struct sock *)STAP_ARG_sk;
 	struct stap_info *info = sk->sk_user_data;
 	struct stap_retrans *retrans = info->retrans;
+	struct tcp_sock *tp = tcp_sk(sk);
 	struct sk_buff *skb; 
 	u32 when;	
 
@@ -47,12 +47,43 @@ function do_FrEvent(sk:long)
 		return;
 
 	skb = tcp_rtx_queue_head(sk);
-	//when = ((struct tcp_skb_cb *)&(skb->cb[0]))->when;
-	when = skb->tstamp;
+	when = skb ? skb->tstamp : 0;
+    //printk("when0: %u\n", when);
+    //printk("when1: %llu\n", tcp_transmit_time(sk));
+
+    printk("when2: skb->skb_mstamp_ns: %llu\n", skb ? skb->skb_mstamp_ns : 0);
+    printk("tcp_clock_ns: %llu\n", tcp_clock_ns());
+    //printk("jiffies: %lu\n", jiffies/HZ);
+
+    //printk("when3: tcp_skb_timestamp_us %llu\n", skb ? tcp_skb_timestamp_us(skb) : 0);
+
+    /*
+    u32 delta_us = tcp_stamp_us_delta(tp->tcp_mstamp, tp->rcv_rtt_est.time);
+    printk("tp->tcp_mstamp: %llu\n", tp->tcp_mstamp);
+    printk("delta_us: %u\n", delta_us);
+    */
+
+    //printk("tp->tcp_clock_cache: %llu\n", tp->tcp_clock_cache); // 机器
+    /*
+    printk("tp->lsndtime: %u\n", tp->lsndtime); // ms
+    printk("tcp_jiffies32: %u\n", tcp_jiffies32); // ms
+    printk("tcp_jiffies32 to_usecs: %u ns\n", jiffies_to_usecs(tcp_jiffies32));
+    printk("tcp_clock_ms: %llu ms\n", tcp_clock_ms());
+    */
+    /*
+    printk("tcp_jiffies32: %u ms\n", jiffies_to_msecs(tcp_jiffies32));
+
+    printk("jiffies: %lu\n", jiffies);
+    printk("jiffies: %u us\n", jiffies_to_usecs(jiffies));
+    printk("jiffies: %u ms\n", jiffies_to_msecs(jiffies));
+    printk("jiffies: %u us\n", jiffies_to_usecs(jiffies));
+    printk("jiffies: %u ms\n", jiffies_to_msecs(jiffies));
+    // 参考tcp_get_info
+    */
 
 	retrans->fr_ev++;
-	retrans->fr_s_t = (u32)tcp_time_stamp_ts;
-	retrans->fr_wt += (u32)tcp_time_stamp_ts - when;
+	retrans->fr_s_t = (u32)tcp_jiffies32;
+	retrans->fr_wt += (u32)tcp_jiffies32 - when;
 %}
 
 probe retran.ToEventDistr = 
@@ -78,17 +109,18 @@ function do_ToEventDistr(sk:long)
 		return;
 
 	skb = tcp_rtx_queue_head(sk);
-	//when = ((struct tcp_skb_cb *)&(skb->cb[0]))->when;
-	when = skb->tstamp;
+	when = skb ? skb->tstamp : 0;
 
 	retrans->to_ev++;
-	retrans->to_s_t = (u32)tcp_time_stamp_ts;
-	retrans->to_wt += (u32)tcp_time_stamp_ts - when;
+	retrans->to_s_t = (u32)tcp_jiffies32;
+	retrans->to_wt += (u32)tcp_jiffies32 - when;
 
 	retrans->ca_bf_to = icsk->icsk_ca_state;
 	retrans->to_ev_distr[icsk->icsk_ca_state]++;
-	retrans->to_wt_distr[icsk->icsk_ca_state] += (u32)tcp_time_stamp_ts - when;
+	retrans->to_wt_distr[icsk->icsk_ca_state] += (u32)tcp_jiffies32 - when;
 %}
+
+global traces
 
 probe retran.PktDistr = 
 	kernel.statement("tcp_retransmit_skb@net/ipv4/tcp_output.c:3408")
@@ -97,6 +129,8 @@ probe retran.PktDistr =
 	if (!$sk->sk_user_data)
 		next
 
+    //printf("------------------>\n");
+    //print_stack(backtrace());
 	do_PktDistr($sk, $skb)
 }
 
@@ -113,6 +147,7 @@ function do_PktDistr(sk:long, skb:long)
 
 	pkts_sent = tcp_skb_pcount((struct sk_buff *)STAP_ARG_skb);
 
+    //printk("tcp_retransmit_skb state: %d\n", icsk->icsk_ca_state);
 	if (icsk->icsk_ca_state == TCP_CA_Recovery) 
 		retrans->fr_rp += pkts_sent;
 	else {
@@ -122,7 +157,7 @@ function do_PktDistr(sk:long, skb:long)
 %}
 
 probe retran.RecoverTime = 
-	kernel.statement("tcp_fastretrans_alert@net/ipv4/tcp_input.c:3001")
+	kernel.statement("tcp_fastretrans_alert@net/ipv4/tcp_input.c:3110")
 {
 	if (mem_is_stop()) next
 	if (!$sk->sk_user_data)
@@ -139,7 +174,7 @@ function do_RecoverTime(sk:long)
 	struct stap_info *info = sk->sk_user_data;
 	struct stap_retrans *retrans = info->retrans;
 	struct inet_connection_sock *icsk = inet_csk(sk);
-	u32 now = (u32)tcp_time_stamp_ts;
+	u32 now = (u32)tcp_jiffies32;
 
 	if (!retrans)
 		return;
@@ -220,10 +255,12 @@ probe retran.FrtoUndo =
 function log_retrans(sk:long)
 {
 	if (%{stap_options.bitmap%} & %{STAPF_RETRANS%}) {
-		if (!%{stap_options.detail_log%})
-			print(log_default_retrans(sk))
-		else
+		if (!%{stap_options.detail_log%}) {
+			print(log_default_retrans(sk));
+        }
+		else {
 			print(log_detail_retrans(sk))
+        }
 	}
 }
 

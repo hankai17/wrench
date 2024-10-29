@@ -7,8 +7,7 @@
 %}
 
 probe estab.Estab = 
-    //kernel.statement("tcp_rcv_state_process@/build/linux-fBJ2ej/linux-6.8.0/net/ipv4/tcp_input.c:6754")
-    kernel.statement("tcp_rcv_state_process@net/ipv4/tcp_input.c:6754")
+    kernel.statement("tcp_rcv_state_process@net/ipv4/tcp_input.c:6716")
 {
 	if (mem_is_stop()) next
 	if (!filter($sk)) next
@@ -35,7 +34,7 @@ function do_Estab(sk:long)
 	if (!info)
 		return;
 
-	info->estab_t = (u32)tcp_time_stamp_ts;
+	info->estab_t = (u32)tcp_jiffies32;
 	info->isn = tp->snd_nxt;
 	info->rtx_synack = tp->total_retrans;
 	atomic_set(&info->freeing, 0); 
@@ -71,7 +70,7 @@ function do_Accept(sk:long)
 	if (!info)
 		return;
 
-	info->accept_wait = (u32)tcp_time_stamp_ts - info->estab_t;
+	info->accept_wait = (u32)tcp_jiffies32 - info->estab_t;
 	info->init_cwnd = tp->snd_cwnd;
 	info->init_ssthr = tp->snd_ssthresh;
     printk("--------------------------------------accept_wait: %d\n", info->accept_wait);

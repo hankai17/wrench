@@ -33,7 +33,7 @@ function do_Send(sk:long, cnt:long)
 	if (info->http && info->http_count && STAP_ARG_cnt) {
 		http = info->http + (info->http_count - 1);
 	    if (!http->xmit_resp_ts) {
-			http->xmit_resp_ts = (u32)tcp_time_stamp_ts;
+			http->xmit_resp_ts = (u32)tcp_jiffies32;
 			http->start_seq = tp->snd_una; 
 		}
 	}
