@@ -35,6 +35,26 @@ probe retran.FrEvent =
 	do_FrEvent($sk)	
 }
 
+function get_cong_win(sk:long)
+%{
+	struct tcp_sock *tp = tcp_sk(sk);
+	printk("snd_cwnd: %d\n", tp->snd_cwnd);
+%}
+
+function get_cong_win_timer(tp:long)
+%{
+	// printk tp->snd_cwnd
+%}
+
+probe retrans.FrWin =
+    kernel.function("tcp_fastretrans_alert").return
+{
+	if (mem_is_stop()) next
+	if (!$sk->sk_user_data)
+		next
+    get_cong_win($sk)
+}
+
 function do_FrEvent(sk:long)
 %{
 	struct sock *sk = (struct sock *)STAP_ARG_sk;
