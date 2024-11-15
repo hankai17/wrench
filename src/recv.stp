@@ -117,7 +117,7 @@ function do_RespEnd(sk:long)
  * Receive an ACK.
  */
 probe trans.RecvACK = 
-	kernel.statement("tcp_ack@net/ipv4/tcp_input.c:3756")
+	kernel.function("tcp_ack@net/ipv4/tcp_input.c")
 {
 	if (mem_is_stop()) next
 	if (!$sk->sk_user_data)

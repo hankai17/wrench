@@ -26,7 +26,7 @@
 %}
 
 probe retran.FrEvent =
-	kernel.statement("tcp_fastretrans_alert@net/ipv4/tcp_input.c:3001")
+	kernel.function("tcp_fastretrans_alert@net/ipv4/tcp_input.c")
 {
 	if (mem_is_stop()) next
 	if (!$sk->sk_user_data)
@@ -81,7 +81,7 @@ function do_FrEvent(sk:long)
 %}
 
 probe retran.ToEventDistr = 
-	kernel.statement("tcp_retransmit_timer@net/ipv4/tcp_timer.c:511")
+	kernel.function("tcp_retransmit_timer@net/ipv4/tcp_timer.c")
 {
 	if (mem_is_stop()) next
 	if (!$sk->sk_user_data)

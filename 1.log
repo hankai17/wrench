@@ -1,2 +1,0 @@
-
-// stap -L 'kernel.statement("tcp_rcv_state_process@*:*")'

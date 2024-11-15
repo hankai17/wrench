@@ -2,12 +2,73 @@
 	#include <net/tcp.h>
 	#include <linux/rtc.h>
 	#include <linux/timekeeping.h>
+    #include <net/ip_vs.h>
 
 	struct stap_info;
 %}
 
+
+probe estab.ipvs_new =
+    module("ip_vs").function("ip_vs_conn_new").return 
+{
+	conn = $return
+	if (!conn) next
+    do_conn(conn)
+}
+
+function do_conn(conn:long)
+%{
+    struct ip_vs_conn * cp = (struct ip_vs_conn *)STAP_ARG_conn;
+    printk("cp->state: %d\n", cp->state);
+%}
+
+probe estab.ipvs = 
+    module("ip_vs").function("ip_vs_nat_xmit")
+{
+	do_ipvs($skb)
+}
+
+function do_ipvs(skb:long)
+%{
+    struct rtable *rt;
+    int local, rc, was_input;
+	struct sk_buff *skb = (struct sk_buff *)STAP_ARG_skb;
+
+    /*
+    if (unlikely(cp->flags & IP_VS_CONN_F_NO_CPORT)) {
+        __be16 _pt, *p;
+
+        p = skb_header_pointer(skb, ipvsh->len, sizeof(_pt), &_pt);
+        if (p == NULL)
+            goto tx_error;
+        ip_vs_conn_fill_cport(cp, *p);
+        IP_VS_DBG(10, "filled cport=%d\n", ntohs(*p));
+    }
+    */
+
+    was_input = rt_is_input_route(skb_rtable(skb));
+    /*
+    local = __ip_vs_get_out_rt(cp->ipvs, cp->af, skb, cp->dest, cp->daddr.ip,
+                   IP_VS_RT_MODE_LOCAL |
+                   IP_VS_RT_MODE_NON_LOCAL |
+                   IP_VS_RT_MODE_RDR, NULL, ipvsh);
+    if (local < 0)
+        goto tx_error;
+    */
+    rt = skb_rtable(skb);
+    //$sock = (struct sock *)arg2; // tcpretrans.bt tcplife.bt tcpaccept.bt
+    //printf("dev: %s\n", rt->idev->dev->name);
+    printk("rt->type: %d, gentid: %d, iif: %d, gateway: %d, dev: %s, dst->dev->ifindex: %d\n", 
+        rt->rt_type, 
+        rt->rt_genid, 
+        rt->rt_iif,
+        333, //rt->rt_gateway,
+        rt->dst.dev->name,
+        rt->dst.dev->ifindex);
+%}
+
 probe estab.Estab = 
-    kernel.statement("tcp_rcv_state_process@net/ipv4/tcp_input.c:6716")
+    kernel.function("tcp_rcv_state_process@net/ipv4/tcp_input.c")
 {
 	if (mem_is_stop()) next
 	if (!filter($sk)) next

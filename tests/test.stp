@@ -1,0 +1,10 @@
+#!/usr/bin/env stap
+
+global traces
+
+//probe module("ip_vs").function("ip_vs_bind_xmit") {
+probe module("ip_vs").function("ip_vs_nat_xmit") {
+    //printf("hello")
+    //print_stack(backtrace())
+    printf ("%s args [%s]\n", probefunc(), $$parms)
+}
