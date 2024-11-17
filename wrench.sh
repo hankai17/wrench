@@ -119,6 +119,7 @@ probe begin
 }
 
 # Probe points MUST
+probe ipvs.* {}
 probe estab.* {}
 probe close.* {}
 probe trans.* {}
