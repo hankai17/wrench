@@ -85,7 +85,7 @@ function get_socket_addr:string (sk:long)
 	local_addr = sprintf("%s:%d", ip_ntop(htonl(laddr)), lport)
 	remote_addr = sprintf("%s:%d", ip_ntop(htonl(raddr)), rport)
 
-	return sprintf("local=%s,remote=%s", local_addr, remote_addr)
+	return sprintf("local: %s, remote: %s", local_addr, remote_addr)
 }
 
 function get_socket_state:string (sk:long)

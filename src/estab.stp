@@ -48,6 +48,8 @@ function do_Estab(sk:long)
 		cong->adcong_flag = 1;
 		atomic_set(&cong->adcong_cnt, 0);
 	}
+    int port = ntohs(inet_sk(sk)->inet_sport);
+    printk("tcp_rcv_state_process: dport: %d\n", port);
 %}
 
 probe estab.Accept = 

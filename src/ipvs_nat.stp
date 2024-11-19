@@ -6,28 +6,49 @@
 
 %}
 
-probe ipvs.ipvs_new =
-    module("ip_vs").statement("ip_vs_schedule@net/netfilter/ipvs/ip_vs_core.c:537")
+probe ipvs.ipvs_conn_find =
+    module("ip_vs").statement("ip_vs_schedule@net/netfilter/ipvs/ip_vs_core.c:532")
 {
-    print_stack(backtrace());
-    do_schedule($skb, $dest);
+    ipvs_conn_find($dest)
 }
 
-function do_schedule(skb:long, dest:long)
+function ipvs_conn_find(dest:long)
+%{
+    struct ip_vs_dest* dest = (struct ip_vs_dest*)STAP_ARG_dest;
+    if (dest) {
+        printk("dest match\n");
+    } else {
+        printk("dest not match\n");
+    }
+%}
+
+probe ipvs.ipvs_schedule =
+    module("ip_vs").statement("ip_vs_schedule@net/netfilter/ipvs/ip_vs_core.c:547")
+{
+    print_stack(backtrace());
+    if ($skb) {
+        sk = $skb->sk;
+        if (sk) {
+	        if (mem_alloc(sk)) {
+	        	next
+	        }
+        } else {
+            printf("sk in null\n");
+        }
+    } else {
+        printf("skb in null\n");
+    }
+    do_schedule($skb);
+}
+
+function do_schedule(skb:long)
 %{
 	struct sk_buff *skb = (struct sk_buff *)STAP_ARG_skb;
-    struct ip_vs_dest *dest = (struct ip_vs_dest *)STAP_ARG_dest;
 
     if ((!skb->dev || skb->dev->flags & IFF_LOOPBACK)) {
         printk("reverse\n");
     } else {
         printk("no reverse\n");
-    }
-
-    if (dest) {
-        printk("ip_vs_schedule: get dest vaddr: %08X\n", ntohl(dest->vaddr.ip));
-    } else {
-        printk("ip_vs_schedule: get dest vaddr null\n");
     }
 %}
 
@@ -62,15 +83,8 @@ function do_ipvs_nat(skb:long, cp:long, rt:long, local:long, addr:string)
     int local = (int)STAP_ARG_local;
     char *addr = (char *)STAP_ARG_addr;
 
-    printk("addr: %s\n", addr);
-
-    printk("ip_vs_nat_xmit find rt, \
-                rt->type: %d, \
-                gentid: %d, \
-                iif: %d, \
-                gateway: %d, \
-                dev: %s, \
-                dst->dev->ifindex: %d\n", 
+    printk("ip_vs_nat_xmit addr: %s, find rtable, type: %d, gentid: %d, iif: %d, gateway: %d, dev: %s, dst->dev->ifindex: %d\n", 
+        addr,
         rt->rt_type, 
         rt->rt_genid, 
         rt->rt_iif,
@@ -79,8 +93,59 @@ function do_ipvs_nat(skb:long, cp:long, rt:long, local:long, addr:string)
         rt->dst.dev->ifindex);
 %}
 
-// 数据包进入四层了吗?
-// 为什么进邻居子系统?
+probe ipvs.tcp_recv =
+    tcp.receive 
+{
+    do_l4_start1(skb, saddr, daddr, sport, dport)
+}
+
+function do_l4_start1(skb:long, saddr:string, daddr:string, sport:long, dport:long)
+%{
+	struct sk_buff *skb = (struct sk_buff *)STAP_ARG_skb;
+    char *saddr = (char *)STAP_ARG_saddr;
+    char *daddr = (char *)STAP_ARG_daddr;
+    int sport = (int)STAP_ARG_sport;
+    int dport = (int)STAP_ARG_dport;
+
+    if (!skb) {
+        return;
+    }
+
+	struct sock *sk = (struct sock *)skb->sk;
+    if (!sk) {
+        return;
+    }
+
+	struct stap_info *info = sk->sk_user_data;
+	if (!info) {
+		return;
+    }
+
+    printk("tcp_v4_rcv saddr: %s, sport: %d, daddr: %s, dport: %d\n",
+        saddr, sport,
+        daddr, dport);
+%}
+
+probe ipvs.l4_start =
+    kernel.function("tcp_v4_rcv")
+{
+    sk = $skb->sk;
+    if (sk) {
+        do_l4_start(sk, $skb);
+    }
+}
+
+function do_l4_start(sk:long, skb:long)
+%{
+	struct sock *sk = (struct sock *)STAP_ARG_sk;
+	struct sk_buff *skb = (struct sk_buff *)STAP_ARG_skb;
+
+    int port = ntohs(inet_sk(sk)->inet_sport);
+    if (port != 80) {
+        return;
+    }
+    printk("dport: %d\n", port);
+%}
 
 probe ipvs.ipvs_nat_send = 
     module("ip_vs").function("ip_vs_nat_send_or_cont")
@@ -91,7 +156,99 @@ probe ipvs.ipvs_nat_send =
 function do_nat_send(skb:long)
 %{
 	struct sk_buff *skb = (struct sk_buff *)STAP_ARG_skb;
-
 %}
 
+probe ipvs.ip_output =
+    kernel.function("ip_output")
+{
+    do_ip_output($sk, $skb);
+}
 
+function do_ip_output(sk:long, skb:long)
+%{
+	struct sock *sk = (struct sock *)STAP_ARG_sk;
+	struct sk_buff *skb = (struct sk_buff *)STAP_ARG_skb;
+
+    if (!skb) {
+        return;
+    }
+
+    //if (sk1 && inet_sk(sk1)) {
+    //    int port = ntohs(inet_sk(sk1)->inet_dport);
+    //    if (port != 80) {
+    //        return;
+    //    }
+    //    //printk("do_ip_output dport: %d\n", port);
+    //}
+
+    struct sock *sk1 = skb->sk;
+    if (!sk1) {
+        return;
+    }
+
+	struct stap_info *info = sk1->sk_user_data;
+	if (!info) {
+		return;
+    }
+    printk("do_ip_output\n");
+%}
+
+probe ipvs.ip_finish_output =
+    kernel.statement("ip_finish_output2@ip_output.c:230")
+{
+    do_ip_finish_output2($sk, $skb, $neigh);
+}
+
+function do_ip_finish_output2(sk:long, skb:long, neigh:long)
+%{
+	struct sock *sk = (struct sock *)STAP_ARG_sk;
+    struct neighbour *neigh = (struct neighbour*)STAP_ARG_neigh;
+
+	struct sk_buff *skb = (struct sk_buff *)STAP_ARG_skb;
+    if (!skb) {
+        return;
+    }
+
+    struct sock *sk1 = skb->sk;
+    if (!sk1) {
+        return;
+    }
+
+	struct stap_info *info = sk1->sk_user_data;
+	if (!info) {
+		return;
+    }
+
+    if (neigh) {
+        printk("neigh is not null\n");
+    }
+%}
+
+probe ipvs.dev_queue_xmit =
+    kernel.function("dev_queue_xmit")
+{
+    do_dev_queue_xmit($skb)
+}
+
+function do_dev_queue_xmit(skb:long)
+%{
+	struct sk_buff *skb = (struct sk_buff *)STAP_ARG_skb;
+    if (!skb) {
+        return;
+    }
+
+    struct sock *sk1 = skb->sk;
+    if (!sk1) {
+        return;
+    }
+
+	struct stap_info *info = sk1->sk_user_data;
+	if (!info) {
+		return;
+    }
+
+    printk("dev_queue_xmit skb\n");
+%}
+
+// tcp.receive 的实现参考
+// 打印一下调用栈 验证一下发包调用路径
