@@ -3,17 +3,59 @@
 	#include <linux/rtc.h>
 	#include <linux/timekeeping.h>
     #include <net/ip_vs.h>
+	#include <linux/skbuff.h>
 
 %}
+
+function interested_skb:long(skb:long)
+{
+    skb = &@cast(skb, "struct sk_buff")[0]
+    if (!skb) {
+        return 0;
+    }
+    if (skb->sk && skb->sk->sk_user_data) {
+        return 1;
+    }
+    tcphdr = __get_skb_tcphdr(skb);
+    if (tcphdr) {
+        sport = __tcp_skb_sport(tcphdr);
+        dport = __tcp_skb_dport(tcphdr);
+
+        if (dport == 80 || sport == 80) {
+            return 2;
+        }
+    }
+    return 0;
+}
+
+function skb_addr:string(skb:long)
+{
+    addr = ""
+    skb = &@cast(skb, "struct sk_buff")[0]
+    if (skb) {
+        /*
+        sk = $skb->sk;
+        if (sk) {
+            return sprintf("%s", get_socket_addr(sk));
+        }
+        */
+        iphdr = __get_skb_iphdr(skb);
+        if (iphdr) {
+            saddr = format_ipaddr(__ip_skb_saddr(iphdr), @const("AF_INET"))
+            daddr = format_ipaddr(__ip_skb_daddr(iphdr), @const("AF_INET")) 
+            return sprintf("saddr: %s, daddr: %s ", saddr, daddr);
+        }
+    } else {
+        return sprintf("null");
+    }
+}
 
 probe ipvs.ipvs_start =
     module("ip_vs").function("ip_vs_schedule")
 {
     if (!$skb) next;
-    sk = $skb->sk; 
-    if (!sk) next;
-    info = sk->sk_user_data;
-    if (!info) next;
+    if (!interested_skb($skb)) next;
+
     printf("ip_vs_schedule start\n"); 
 }
 
@@ -46,10 +88,10 @@ probe ipvs.ipvs_schedule =
 	        	next
 	        }
         } else {
-            printf("sk in null\n");
+            printf("sk is null\n");
         }
     } else {
-        printf("skb in null\n");
+        printf("skb is null\n");
     }
     printf("%s",
         do_schedule($skb)
@@ -81,9 +123,12 @@ probe ipvs.ipvs_nat =
     module("ip_vs").statement("ip_vs_nat_xmit@net/netfilter/ipvs/ip_vs_xmit.c:801")
 {
     if (!$skb) next;
+
     sk = $skb->sk;
-    if (!sk) next;
-	addr = get_socket_addr(sk);
+    addr = ""
+    if (sk) {
+	    addr = get_socket_addr(sk);
+    }
     
 	printf("%s",
         do_ipvs_nat($skb, $cp, $rt, $local, addr)
@@ -112,10 +157,7 @@ probe ipvs.tcp_recv =
     tcp.receive 
 {
     if (!$skb) next;
-    sk = $skb->sk; 
-    if (!sk) next;
-    info = sk->sk_user_data;
-    if (!info) next;
+    if (!interested_skb($skb)) next;
 
     printf("tcp_v4_rcv saddr: %s, sport: %d, daddr: %s, dport: %d\n",
         saddr, sport,
@@ -141,12 +183,6 @@ probe ipvs.ip_output =
 {
     if (!$skb) next;
 
-    sk = $skb->sk;
-    if (!sk) next;
-
-    info = sk->sk_user_data;
-    if (!info) next;
-
     tcphdr = __get_skb_tcphdr($skb);
     if (!tcphdr) next;
 
@@ -160,12 +196,20 @@ probe ipvs.ip_output =
     
     seq = __tcp_skb_seq(tcphdr);
     ack_seq = __tcp_skb_ackseq(tcphdr);
+
+    if (dport != 80 && sport != 80) {
+        next;
+    }
     
-    printf("ip_output: sport: %d, dport: %d,"
+    //print_stack(backtrace());
+    printf("ip_output: "
+            "addr: %s,"
+            " sport: %d, dport: %d,"
             " syn: %d, ack: %d, fin: %d, rst: %d, urg: %d,"
             " skb->len: %d"
             //" seq: %d, ack_seq: %d"
             "\n",
+            skb_addr($skb),
             sport, dport,
             syn, ack, fin, rst, urg,
             $skb->data_len
@@ -195,12 +239,7 @@ probe ipvs.ip_finish_output =
     kernel.statement("ip_finish_output2@ip_output.c:230")
 {
     if (!$skb) next;
-
-    sk = $skb->sk;
-    if (!sk) next;
-
-    info = sk->sk_user_data;
-    if (!info) next;
+    if (!interested_skb($skb)) next;
 
     printf("ip_finish_output2\n");
 
@@ -217,21 +256,25 @@ probe ipvs.dev_queue_xmit =
     kernel.function("dev_queue_xmit")
 {
     if (!$skb) next;
+    if (!interested_skb($skb)) next;
 
-    sk = $skb->sk;
-    if (!sk) next;
-
-    info = sk->sk_user_data;
-    if (!info) next;
-
-    printf("dev_queue_xmit skb\n");
+    printf("dev_queue_xmit skb\n\n");
 }
 
 /*
-probe ipvs.ip_vs_in_hook =
-    module("ip_vs").function("ip_vs_in_hook")
+probe ipvs.ip_vs_forward =
+    module("ip_vs").function("ip_vs_out_hook")
 {
-    printf("ip_vs_in_hook\n");
+    if (!$skb) next;
+    if (!interested_skb($skb)) next;
+    printf("ip_vs_out_hook: %s\n", skb_addr($skb));
 }
 */
 
+probe ipvs.ip_vs_forward =
+    module("ip_vs").statement("handle_response@net/netfilter/ipvs/ip_vs_core.c:1302")
+{
+    if (!$skb) next;
+    if (!interested_skb($skb)) next;
+    printf("handle_response: %s\n", skb_addr($skb));
+}
